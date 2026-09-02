@@ -671,6 +671,19 @@ async function generateStyledExcel(type) {
   return await workbook.xlsx.writeBuffer();
 }
 
+function getRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    if (req.body) {
+      if (typeof req.body === 'object') return resolve(JSON.stringify(req.body));
+      return resolve(req.body);
+    }
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => resolve(body));
+    req.on('error', err => reject(err));
+  });
+}
+
 // -------------------------------------------------------------
 // HTTP Server & Routes
 // -------------------------------------------------------------
@@ -710,78 +723,72 @@ async function handleRequest(req, res) {
   }
 
   if (pathname === '/api/status/toggle' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', () => {
-      try {
-        const payload = JSON.parse(body);
-        const { type, id, done, note } = payload;
+    try {
+      const body = await getRequestBody(req);
+      const payload = JSON.parse(body || '{}');
+      const { type, id, done, note } = payload;
 
-        if (!type || !id || !db.status[type]) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Parâmetros inválidos' }));
-          return;
-        }
-
-        db.status[type][id] = {
-          done: Boolean(done),
-          updatedAt: new Date().toISOString(),
-          note: note || ''
-        };
-
-        saveStatus();
-
-        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({
-          success: true,
-          itemStatus: db.status[type][id],
-          progress: getProgressStats()
-        }));
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+      if (!type || !id || !db.status[type]) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Parâmetros inválidos' }));
+        return;
       }
-    });
+
+      db.status[type][id] = {
+        done: Boolean(done),
+        updatedAt: new Date().toISOString(),
+        note: note || ''
+      };
+
+      saveStatus();
+
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        success: true,
+        itemStatus: db.status[type][id],
+        progress: getProgressStats()
+      }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
     return;
   }
 
   // --- API: Batch Status Toggle ---
   if (pathname === '/api/status/batch-toggle' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', () => {
-      try {
-        const payload = JSON.parse(body);
-        const { type, ids, done, note } = payload;
+    try {
+      const body = await getRequestBody(req);
+      const payload = JSON.parse(body || '{}');
+      const { type, ids, done, note } = payload;
 
-        if (!type || !Array.isArray(ids) || !db.status[type]) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Parâmetros inválidos' }));
-          return;
-        }
-
-        const now = new Date().toISOString();
-        ids.forEach(id => {
-          db.status[type][id] = {
-            done: Boolean(done),
-            updatedAt: now,
-            note: note || 'Baixa em lote'
-          };
-        });
-
-        saveStatus();
-
-        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({
-          success: true,
-          count: ids.length,
-          progress: getProgressStats()
-        }));
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+      if (!type || !Array.isArray(ids) || !db.status[type]) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Parâmetros inválidos' }));
+        return;
       }
-    });
+
+      const now = new Date().toISOString();
+      ids.forEach(id => {
+        db.status[type][id] = {
+          done: Boolean(done),
+          updatedAt: now,
+          note: note || 'Baixa em lote'
+        };
+      });
+
+      saveStatus();
+
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        success: true,
+        count: ids.length,
+        progress: getProgressStats()
+      }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
     return;
   }
 
@@ -1382,19 +1389,19 @@ async function handleRequest(req, res) {
   if (pathname.startsWith('/api/download/')) {
     const filename = path.basename(decodeURIComponent(pathname.replace('/api/download/', '')));
     const filePath = path.join(BASE_DIR, filename);
-    if (fs.existsSync(filePath)) {
-      const stat = fs.statSync(filePath);
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       let contentType = 'application/octet-stream';
       if (filename.endsWith('.csv')) contentType = 'text/csv; charset=utf-8';
       if (filename.endsWith('.json')) contentType = 'application/json; charset=utf-8';
       if (filename.endsWith('.xlsx')) contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+      const fileBuffer = fs.readFileSync(filePath);
       res.writeHead(200, {
         'Content-Type': contentType,
-        'Content-Length': stat.size,
+        'Content-Length': fileBuffer.length,
         'Content-Disposition': `attachment; filename="${filename}"`
       });
-      fs.createReadStream(filePath).pipe(res);
+      res.end(fileBuffer);
       return;
     } else {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -1405,22 +1412,17 @@ async function handleRequest(req, res) {
 
   // --- Static Files ---
   let filePath = path.normalize(path.join(PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname));
-  if (!filePath.startsWith(path.normalize(PUBLIC_DIR))) {
-    res.writeHead(403);
-    res.end('Acesso proibido');
-    return;
+  if (!fs.existsSync(filePath)) {
+    filePath = path.normalize(path.join(BASE_DIR, pathname === '/' ? 'index.html' : pathname));
+  }
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    filePath = path.join(PUBLIC_DIR, 'index.html');
+    if (!fs.existsSync(filePath)) {
+      filePath = path.join(BASE_DIR, 'index.html');
+    }
   }
 
-  fs.stat(filePath, (err, stats) => {
-    if (err || !stats.isFile()) {
-      filePath = path.join(PUBLIC_DIR, 'index.html');
-      if (!fs.existsSync(filePath)) {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Recurso não encontrado' }));
-        return;
-      }
-    }
-
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
     const ext = path.extname(filePath).toLowerCase();
     const mimeTypes = {
       '.html': 'text/html; charset=utf-8',
@@ -1437,12 +1439,16 @@ async function handleRequest(req, res) {
     const headers = { 'Content-Type': contentType };
     if (ext === '.js' || ext === '.css' || ext === '.html') {
       headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
-      headers['Pragma'] = 'no-cache';
-      headers['Expires'] = '0';
     }
+    const content = fs.readFileSync(filePath);
     res.writeHead(200, headers);
-    fs.createReadStream(filePath).pipe(res);
-  });
+    res.end(content);
+    return;
+  } else {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Recurso não encontrado' }));
+    return;
+  }
   } catch (err) {
     console.error('💥 Erro em handleRequest:', err);
     if (!res.headersSent) {
