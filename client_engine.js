@@ -24,6 +24,24 @@
 
   let dbStatus = getLocalStatus();
 
+  let costMap = null;
+  function getCostMap() {
+    if (!costMap && window.NEWSHOP_DATA) {
+      costMap = new Map();
+      const d = window.NEWSHOP_DATA;
+      if (d.positiveStock) d.positiveStock.forEach(p => { if (p.custoUnit) costMap.set(p.codigo, p.custoUnit); });
+      if (d.transfers) d.transfers.forEach(t => { if (t.custoUnit) costMap.set(t.codigo, t.custoUnit); });
+      if (d.criticalPurchases) d.criticalPurchases.forEach(p => { if (p.custoUnit) costMap.set(p.codigo, p.custoUnit); });
+    }
+    return costMap || new Map();
+  }
+
+  function getProductCost(codigo) {
+    const cm = getCostMap();
+    if (cm.has(codigo)) return cm.get(codigo);
+    return 1.00;
+  }
+
   function getProgressStats() {
     const data = window.NEWSHOP_DATA;
     if (!data) return { transfers: { done: 0, total: 0, pct: '0.0' }, reclassifications: { done: 0, total: 0, pct: '0.0' }, purchases: { done: 0, total: 0, pct: '0.0' }, totalDone: 0 };
@@ -406,32 +424,234 @@
 
     // 10. /api/export/reclass-erp-txt
     if (pathname === '/api/export/reclass-erp-txt') {
-      const code = searchParams.get('code');
-      const item = data.reclassifications.find(r => r.codigo === code);
-      if (!item) return jsonRes({ error: 'Não encontrado' }, 404);
+      const status = searchParams.get('status') || '';
+      const statusFilter = searchParams.get('statusFilter') || 'all';
+      const q = (searchParams.get('search') || '').toLowerCase();
+      const scope = searchParams.get('scope') || 'batch'; // 'batch', 'page', 'all'
+      const page = parseInt(searchParams.get('page') || '1', 10);
+      const limit = parseInt(searchParams.get('limit') || '50', 10);
+      const batchSize = parseInt(searchParams.get('batchSize') || '100', 10);
+      const batchIndex = parseInt(searchParams.get('batchIndex') || '1', 10);
+      const format = searchParams.get('format') || 'json';
+      const singleCode = searchParams.get('code') || '';
+      const store = searchParams.get('store') || '';
+      const donorStore = searchParams.get('donorStore') || '';
+      const includeCostBlock1 = searchParams.get('includeCostBlock1') !== '0';
+      const includeCostBlock2 = searchParams.get('includeCostBlock2') !== '0';
 
-      const format = searchParams.get('format') || 'text';
-      const block1 = (item.doador1 && item.doador1.codigo) ? `${item.doador1.codigo};${item.deficit}\r\n` : '';
-      const block2 = `${item.codigo};${item.deficit}\r\n`;
+      let filtered = data.reclassifications.map(r => {
+        const st = dbStatus.reclassifications[r.codigo] || dbStatus.reclassifications[r.id];
+        return {
+          ...r,
+          isDone: Boolean(st && st.done)
+        };
+      });
+
+      if (singleCode) {
+        filtered = filtered.filter(r => r.codigo === singleCode);
+      } else {
+        if (statusFilter === 'done') filtered = filtered.filter(r => r.isDone);
+        if (statusFilter === 'pending') filtered = filtered.filter(r => !r.isDone);
+        if (status) filtered = filtered.filter(r => r.status === status);
+        if (store === '1') filtered = filtered.filter(r => r.saldoLoja1 < 0);
+        if (store === '2') filtered = filtered.filter(r => r.saldoLoja2 < 0);
+        if (store === '3') filtered = filtered.filter(r => r.saldoLoja3 < 0);
+
+        if (donorStore === '1') filtered = filtered.filter(r => (r.doador1 && r.doador1.saldoLoja1 > 0) || (r.doador2 && r.doador2.saldoLoja1 > 0) || (r.doador3 && r.doador3.saldoLoja1 > 0));
+        if (donorStore === '2') filtered = filtered.filter(r => (r.doador1 && r.doador1.saldoLoja2 > 0) || (r.doador2 && r.doador2.saldoLoja2 > 0) || (r.doador3 && r.doador3.saldoLoja2 > 0));
+        if (donorStore === '3') filtered = filtered.filter(r => (r.doador1 && r.doador1.saldoLoja3 > 0) || (r.doador2 && r.doador2.saldoLoja3 > 0) || (r.doador3 && r.doador3.saldoLoja3 > 0));
+
+        if (q) {
+          filtered = filtered.filter(r =>
+            r.codigo.toLowerCase().includes(q) ||
+            r.descricao.toLowerCase().includes(q) ||
+            r.ncm.includes(q) ||
+            (r.doador1 && r.doador1.codigo && r.doador1.codigo.toLowerCase().includes(q)) ||
+            (r.doador1 && r.doador1.descricao && r.doador1.descricao.toLowerCase().includes(q))
+          );
+        }
+      }
+
+      const totalFiltered = filtered.length;
+      const totalBatches = Math.max(1, Math.ceil(totalFiltered / batchSize));
+
+      let exportItems = filtered;
+      if (singleCode) {
+        exportItems = filtered.filter(r => r.codigo === singleCode);
+      } else if (scope === 'batch') {
+        const start = (batchIndex - 1) * batchSize;
+        exportItems = filtered.slice(start, start + batchSize);
+      } else if (scope === 'page') {
+        const start = (page - 1) * limit;
+        exportItems = filtered.slice(start, start + limit);
+      }
+
+      const donorBalances = new Map();
+      const block1Map = new Map(); // donorCode -> { codigo, qtd, valor }
+      const block2Map = new Map(); // recCode -> { codigo, qtd, valor }
+      const ids = [];
+
+      let totalPecasBlock1 = 0;
+      let totalValorBlock1 = 0;
+      let totalPecasBlock2 = 0;
+      let totalValorBlock2 = 0;
+
+      exportItems.forEach(r => {
+        ids.push(r.codigo);
+        let needed = r.deficit;
+        if (needed <= 0) return;
+
+        const donors = [r.doador1, r.doador2, r.doador3].filter(d => d && d.codigo && d.saldo > 0);
+
+        for (const d of donors) {
+          if (needed <= 0) break;
+
+          if (!donorBalances.has(d.codigo)) {
+            donorBalances.set(d.codigo, d.saldo);
+          }
+
+          const available = donorBalances.get(d.codigo);
+          if (available <= 0) continue;
+
+          const donateQty = Math.min(needed, available);
+          if (donateQty > 0) {
+            const custo = getProductCost(d.codigo);
+            const valorSubtotal = donateQty * custo;
+
+            if (!block1Map.has(d.codigo)) {
+              block1Map.set(d.codigo, { codigo: d.codigo, qtd: 0, valor: 0 });
+            }
+            const b1Item = block1Map.get(d.codigo);
+            b1Item.qtd += donateQty;
+            b1Item.valor += valorSubtotal;
+
+            if (!block2Map.has(r.codigo)) {
+              block2Map.set(r.codigo, { codigo: r.codigo, qtd: 0, valor: 0 });
+            }
+            const b2Item = block2Map.get(r.codigo);
+            b2Item.qtd += donateQty;
+            b2Item.valor += valorSubtotal;
+
+            totalPecasBlock1 += donateQty;
+            totalValorBlock1 += valorSubtotal;
+            totalPecasBlock2 += donateQty;
+            totalValorBlock2 += valorSubtotal;
+
+            donorBalances.set(d.codigo, available - donateQty);
+            needed -= donateQty;
+          }
+        }
+      });
+
+      const block1Header = includeCostBlock1 ? 'CODIGO;QTD;CUSTO' : 'CODIGO;QTD';
+      const block1Lines = [block1Header];
+      for (const item of block1Map.values()) {
+        const qtdStr = Number.isInteger(item.qtd) ? String(item.qtd) : item.qtd.toFixed(2).replace('.', ',');
+        if (includeCostBlock1) {
+          const custoMedio = item.qtd > 0 ? (item.valor / item.qtd) : 0;
+          const custoStr = custoMedio.toFixed(2).replace('.', ',');
+          block1Lines.push(`${item.codigo};${qtdStr};${custoStr}`);
+        } else {
+          block1Lines.push(`${item.codigo};${qtdStr}`);
+        }
+      }
+
+      const block2Header = includeCostBlock2 ? 'CODIGO;QTD;CUSTO' : 'CODIGO;QTD';
+      const block2Lines = [block2Header];
+      for (const item of block2Map.values()) {
+        const qtdStr = Number.isInteger(item.qtd) ? String(item.qtd) : item.qtd.toFixed(2).replace('.', ',');
+        if (includeCostBlock2) {
+          const custoMedio = item.qtd > 0 ? (item.valor / item.qtd) : 0;
+          const custoStr = custoMedio.toFixed(2).replace('.', ',');
+          block2Lines.push(`${item.codigo};${qtdStr};${custoStr}`);
+        } else {
+          block2Lines.push(`${item.codigo};${qtdStr}`);
+        }
+      }
+
+      const block1Text = block1Lines.join('\r\n');
+      const block2Text = block2Lines.join('\r\n');
 
       if (format === 'json') {
+        const currentItem = exportItems[0] || null;
         return jsonRes({
-          product: { codigo: item.codigo, descricao: item.descricao, ncm: item.ncm, deficit: item.deficit },
-          donor1: item.doador1,
-          block1Text: block1,
-          block2Text: block2,
-          block1Count: block1 ? 1 : 0,
-          block2Count: 1,
-          block1Pieces: item.deficit,
-          block2Pieces: item.deficit
+          totalFiltered,
+          count: exportItems.length,
+          scope,
+          batchInfo: {
+            currentBatch: batchIndex,
+            totalBatches,
+            batchSize,
+            startItem: totalFiltered > 0 ? (batchIndex - 1) * batchSize + 1 : 0,
+            endItem: Math.min(batchIndex * batchSize, totalFiltered)
+          },
+          ids,
+          isBalanced: totalPecasBlock1 === totalPecasBlock2 && Math.abs(totalValorBlock1 - totalValorBlock2) < 0.05,
+          block1: {
+            title: 'BLOCO 1 - ITENS QUE VÃO SAIR / DOAR (SAÍDA)',
+            count: block1Lines.length - 1,
+            totalPecas: totalPecasBlock1,
+            totalValor: totalValorBlock1,
+            includeCost: includeCostBlock1,
+            format: block1Header,
+            text: block1Text
+          },
+          block2: {
+            title: 'BLOCO 2 - ITENS QUE VÃO ENTRAR / RECEBER (ENTRADA)',
+            count: block2Lines.length - 1,
+            totalPecas: totalPecasBlock2,
+            totalValor: totalValorBlock2,
+            includeCost: includeCostBlock2,
+            format: block2Header,
+            text: block2Text
+          },
+          product: currentItem ? { codigo: currentItem.codigo, descricao: currentItem.descricao, ncm: currentItem.ncm, deficit: currentItem.deficit } : null,
+          donor1: currentItem ? currentItem.doador1 : null,
+          block1Text: block1Text,
+          block2Text: block2Text,
+          block1Count: block1Lines.length - 1,
+          block2Count: block2Lines.length - 1,
+          block1Pieces: totalPecasBlock1,
+          block2Pieces: totalPecasBlock2
         });
       }
 
-      const txt = `# BLOCO 1 - SAÍDA FISCAL\r\n${block1}\r\n# BLOCO 2 - ENTRADA FISCAL\r\n${block2}`;
-      return new Response(txt, {
+      if (format === 'block1') {
+        return new Response(block1Text, {
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="reclassificacao_BLOCO1_SAIDA_DOADORES.txt"'
+          }
+        });
+      }
+
+      if (format === 'block2') {
+        return new Response(block2Text, {
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="reclassificacao_BLOCO2_ENTRADA_RECEBIMENTO.txt"'
+          }
+        });
+      }
+
+      const combined = [
+        '# ========================================================',
+        '# BLOCO 1 - ITENS QUE VÃO SAIR / DOAR (DEDUÇÃO DOADOR)',
+        `# Formato: ${block1Header}`,
+        '# ========================================================',
+        block1Text,
+        '',
+        '# ========================================================',
+        '# BLOCO 2 - ITENS QUE VÃO ENTRAR / RECEBER (ENTRADA FISCAL)',
+        `# Formato: ${block2Header}`,
+        '# ========================================================',
+        block2Text
+      ].join('\r\n');
+
+      return new Response(combined, {
         headers: {
           'Content-Type': 'text/plain; charset=utf-8',
-          'Content-Disposition': `attachment; filename="reclassificacao_${code}.txt"`
+          'Content-Disposition': 'attachment; filename="reclassificacao_2_BLOCOS_COMPLETO.txt"'
         }
       });
     }
@@ -535,4 +755,33 @@
 
     return jsonRes({ error: 'Rota não encontrada' }, 404);
   };
+
+  // Interceptador global de cliques em links de download /api/ para funcionar 100% no cliente estático
+  document.addEventListener('click', async function(e) {
+    const a = e.target.closest('a[href^="/api/"]');
+    if (!a) return;
+    e.preventDefault();
+    try {
+      const res = await window.fetch(a.getAttribute('href'));
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') || '';
+      let filename = 'download';
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      if (match) {
+        filename = match[1];
+      } else if (a.hasAttribute('download') && a.getAttribute('download')) {
+        filename = a.getAttribute('download');
+      }
+      const blobUrl = URL.createObjectURL(blob);
+      const tempLink = document.createElement('a');
+      tempLink.href = blobUrl;
+      tempLink.download = filename;
+      document.body.appendChild(tempLink);
+      tempLink.click();
+      document.body.removeChild(tempLink);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+    } catch (err) {
+      console.error('Erro ao baixar arquivo no cliente:', err);
+    }
+  });
 })();

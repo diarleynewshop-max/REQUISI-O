@@ -1295,9 +1295,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch(url);
       const data = await res.json();
 
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Erro ao consultar dados da exportação.');
+      }
+
+      const totalFiltered = typeof data.totalFiltered === 'number' ? data.totalFiltered : 0;
       const b1 = data.block1 || { text: '', count: 0, totalPecas: 0, totalValor: 0 };
       const b2 = data.block2 || { text: '', count: 0, totalPecas: 0, totalValor: 0 };
-      const bInfo = data.batchInfo || { currentBatch: 1, totalBatches: 1, batchSize: 100, startItem: 1, endItem: data.totalFiltered };
+      const bInfo = data.batchInfo || { currentBatch: 1, totalBatches: 1, batchSize: 100, startItem: 1, endItem: totalFiltered };
 
       currentReclassErpData = {
         ids: data.ids || [],
@@ -1319,11 +1324,11 @@ document.addEventListener('DOMContentLoaded', () => {
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
           <div>
             <div style="font-size:0.95rem; font-weight:700; color:#fff;">
-              ${scope === 'batch' ? `📦 Lote ${bInfo.currentBatch} de ${bInfo.totalBatches} (${data.count} itens · #${bInfo.startItem} a #${bInfo.endItem})` : `${data.count} itens selecionados`}
+              ${scope === 'batch' ? `📦 Lote ${bInfo.currentBatch} de ${bInfo.totalBatches} (${data.count || 0} itens · #${bInfo.startItem} a #${bInfo.endItem})` : `${data.count || 0} itens selecionados`}
               ${store ? `· Déficit L${store}` : ''} ${donorStore ? `· Doador L${donorStore}` : ''}
             </div>
             <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">
-              Total no filtro: <strong>${data.totalFiltered.toLocaleString('pt-BR')} itens</strong>
+              Total no filtro: <strong>${totalFiltered.toLocaleString('pt-BR')} itens</strong>
             </div>
           </div>
 
@@ -1336,7 +1341,7 @@ document.addEventListener('DOMContentLoaded', () => {
               📄 Página Atual (50)
             </button>
             <button class="tag-btn ${scope === 'all' ? 'active-scope' : ''}" onclick="fetchAndRenderReclassErpExport('all', 1)" style="${scope === 'all' ? 'background:#3b82f6; color:#fff; font-weight:700;' : ''}">
-              🌐 Todos (${data.totalFiltered.toLocaleString('pt-BR')})
+              🌐 Todos (${totalFiltered.toLocaleString('pt-BR')})
             </button>
           </div>
         </div>
@@ -1351,7 +1356,7 @@ document.addEventListener('DOMContentLoaded', () => {
               <span>Ir para Lote:</span>
               <select onchange="fetchAndRenderReclassErpExport('batch', parseInt(this.value, 10))" style="background:#1e293b; color:#fff; border:1px solid var(--border-color); border-radius:4px; padding:3px 8px; font-size:0.8rem; outline:none; cursor:pointer;">
                 ${Array.from({ length: bInfo.totalBatches }, (_, i) => i + 1).map(bNum => `
-                  <option value="${bNum}" ${bNum === bInfo.currentBatch ? 'selected' : ''}>Lote ${bNum} (itens ${(bNum-1)*100 + 1} a ${Math.min(bNum*100, data.totalFiltered)})</option>
+                  <option value="${bNum}" ${bNum === bInfo.currentBatch ? 'selected' : ''}>Lote ${bNum} (itens ${(bNum-1)*100 + 1} a ${Math.min(bNum*100, totalFiltered)})</option>
                 `).join('')}
               </select>
             </div>
@@ -1366,20 +1371,20 @@ document.addEventListener('DOMContentLoaded', () => {
           <div style="background:#0f172a; border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:10px;">
             <div style="font-size:0.7rem; color:#fca5a5; font-weight:700;">🔴 TOTAL BLOCO 1 (SAÍDA)</div>
             <div style="font-size:1.05rem; font-weight:800; color:#fff; margin-top:2px;">
-              ${b1.totalPecas.toLocaleString('pt-BR')} <span style="font-size:0.75rem; font-weight:400; color:#94a3b8;">un</span>
+              ${(b1.totalPecas || 0).toLocaleString('pt-BR')} <span style="font-size:0.75rem; font-weight:400; color:#94a3b8;">un</span>
             </div>
             <div style="font-size:0.75rem; color:#f87171; font-weight:600; margin-top:2px;">
-              R$ ${b1.totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              R$ ${(b1.totalValor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
 
           <div style="background:#0f172a; border:1px solid rgba(16,185,129,0.3); border-radius:8px; padding:10px;">
             <div style="font-size:0.7rem; color:#6ee7b7; font-weight:700;">🟢 TOTAL BLOCO 2 (ENTRADA)</div>
             <div style="font-size:1.05rem; font-weight:800; color:#fff; margin-top:2px;">
-              ${b2.totalPecas.toLocaleString('pt-BR')} <span style="font-size:0.75rem; font-weight:400; color:#94a3b8;">un</span>
+              ${(b2.totalPecas || 0).toLocaleString('pt-BR')} <span style="font-size:0.75rem; font-weight:400; color:#94a3b8;">un</span>
             </div>
             <div style="font-size:0.75rem; color:#34d399; font-weight:600; margin-top:2px;">
-              R$ ${b2.totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              R$ ${(b2.totalValor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
 
@@ -1405,7 +1410,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <strong style="color:#fca5a5; font-size:0.82rem;">ITENS QUE VÃO SAIR / DOAR</strong>
               </div>
               <span class="badge" style="background:rgba(239,68,68,0.2); color:#fca5a5; border:1px solid rgba(239,68,68,0.4); font-size:0.72rem;">
-                ${b1.count} linhas (${b1.totalPecas.toLocaleString('pt-BR')} un)
+                ${b1.count} linhas (${(b1.totalPecas || 0).toLocaleString('pt-BR')} un)
               </span>
             </div>
             <label style="display:flex; align-items:center; gap:6px; width:max-content; max-width:100%; font-size:0.72rem; color:#fca5a5; font-weight:700; cursor:pointer;">
@@ -1434,7 +1439,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <strong style="color:#6ee7b7; font-size:0.82rem;">ITENS QUE VÃO ENTRAR / RECEBER</strong>
               </div>
               <span class="badge" style="background:rgba(16,185,129,0.2); color:#6ee7b7; border:1px solid rgba(16,185,129,0.4); font-size:0.72rem;">
-                ${b2.count} linhas (${b2.totalPecas.toLocaleString('pt-BR')} un)
+                ${b2.count} linhas (${(b2.totalPecas || 0).toLocaleString('pt-BR')} un)
               </span>
             </div>
             <label style="display:flex; align-items:center; gap:6px; width:max-content; max-width:100%; font-size:0.72rem; color:#6ee7b7; font-weight:700; cursor:pointer;">
@@ -1476,7 +1481,7 @@ document.addEventListener('DOMContentLoaded', () => {
               ↩ Desmarcar Lote
             </button>
             <button class="btn btn-primary btn-sm" onclick="copyReclassAndMarkAllDone()" style="background:linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); font-size:0.8rem;">
-              ✨ Copiar & Marcar Lote (${data.count} Itens) como Feito
+              ✨ Copiar & Marcar Lote (${data.count || 0} Itens) como Feito
             </button>
           </div>
         </div>
