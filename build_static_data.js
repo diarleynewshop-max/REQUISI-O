@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-// Re-use logic from server.js to parse exact data
-const { db, loadData } = require('./server.js');
+// Re-use logic from local_server.js to parse exact data
+const { db, loadData } = require('./local_server.js');
 loadData();
 
 console.log('Generating static data bundle...');

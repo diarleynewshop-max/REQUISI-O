@@ -2,10 +2,11 @@
   "name": "newshop_estoque_reclassificacao",
   "version": "1.0.0",
   "description": "",
-  "main": "server.js",
+  "main": "local_server.js",
   "scripts": {
-    "dev": "node server.js",
-    "start": "node server.js",
+    "dev": "node local_server.js",
+    "start": "node local_server.js",
+    "build": "node build_static_data.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

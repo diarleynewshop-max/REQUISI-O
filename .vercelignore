@@ -9,3 +9,5 @@ INICIAR_AUTO_CLICKER.bat
 *.bat
 ROADMAP_E_PLANO_DE_EXECUCAO.md
 implementation_plan.md
+local_server.js
+build_static_data.js
