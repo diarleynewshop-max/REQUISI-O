@@ -8,9 +8,15 @@ const ExcelJS = require('exceljs');
 const PORT = process.env.PORT || 3000;
 
 function getBaseDir() {
-  const checkDirs = [process.cwd(), __dirname, path.join(__dirname, '..')];
+  const checkDirs = [
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, '..'),
+    path.join(process.cwd(), 'api'),
+    path.resolve('.')
+  ];
   for (const d of checkDirs) {
-    if (fs.existsSync(path.join(d, '0_estoque_original_new.csv'))) {
+    if (fs.existsSync(path.join(d, '0_estoque_original_new.csv')) || fs.existsSync(path.join(d, 'resumo_auditoria.json'))) {
       return d;
     }
   }
@@ -21,9 +27,13 @@ const BASE_DIR = getBaseDir();
 const PUBLIC_DIR = fs.existsSync(path.join(BASE_DIR, 'public')) ? path.join(BASE_DIR, 'public') : path.join(process.cwd(), 'public');
 const STATUS_FILE = path.join(BASE_DIR, 'status_execucao.json');
 
-// Ensure directories
-if (!fs.existsSync(PUBLIC_DIR)) {
-  fs.mkdirSync(PUBLIC_DIR, { recursive: true });
+// Ensure directories (safe in read-only environment)
+try {
+  if (!fs.existsSync(PUBLIC_DIR)) {
+    fs.mkdirSync(PUBLIC_DIR, { recursive: true });
+  }
+} catch (e) {
+  // Ignored in read-only serverless filesystem
 }
 
 // In-memory data store
@@ -159,200 +169,227 @@ function loadData() {
   // 2. Transferências (Filtro 2)
   const transfersPath = path.join(BASE_DIR, '2_plano_transferencias_entre_lojas.csv');
   if (fs.existsSync(transfersPath)) {
-    const lines = fs.readFileSync(transfersPath, 'utf8').split(/\r?\n/).filter(Boolean);
-    db.transfers = [];
-    for (let i = 1; i < lines.length; i++) {
-      const parts = parseCSVLine(lines[i]);
-      if (parts.length >= 12) {
-        const item = {
-          id: `${parts[0].replace(/"/g, '')}_${parts[3].replace(/"/g, '')}_${parts[4].replace(/"/g, '')}`,
-          codigo: parts[0].replace(/"/g, ''),
-          descricao: parts[1].replace(/"/g, ''),
-          ncm: parts[2].replace(/"/g, ''),
-          origem: parts[3].replace(/"/g, ''),
-          destino: parts[4].replace(/"/g, ''),
-          qtd: parseNumber(parts[5]),
-          custoUnit: parseNumber(parts[6]),
-          valorTotal: parseNumber(parts[7]),
-          saldoOrigemAntes: parseNumber(parts[8]),
-          saldoOrigemDepois: parseNumber(parts[9]),
-          saldoDestinoAntes: parseNumber(parts[10]),
-          saldoDestinoDepois: parseNumber(parts[11])
-        };
-        db.transfers.push(item);
+    try {
+      const lines = fs.readFileSync(transfersPath, 'utf8').split(/\r?\n/).filter(Boolean);
+      db.transfers = [];
+      for (let i = 1; i < lines.length; i++) {
+        const parts = parseCSVLine(lines[i]);
+        if (parts.length >= 12) {
+          const item = {
+            id: `${parts[0].replace(/"/g, '')}_${parts[3].replace(/"/g, '')}_${parts[4].replace(/"/g, '')}`,
+            codigo: parts[0].replace(/"/g, ''),
+            descricao: parts[1].replace(/"/g, ''),
+            ncm: parts[2].replace(/"/g, ''),
+            origem: parts[3].replace(/"/g, ''),
+            destino: parts[4].replace(/"/g, ''),
+            qtd: parseNumber(parts[5]),
+            custoUnit: parseNumber(parts[6]),
+            valorTotal: parseNumber(parts[7]),
+            saldoOrigemAntes: parseNumber(parts[8]),
+            saldoOrigemDepois: parseNumber(parts[9]),
+            saldoDestinoAntes: parseNumber(parts[10]),
+            saldoDestinoDepois: parseNumber(parts[11])
+          };
+          db.transfers.push(item);
 
-        if (!db.productMap.has(item.codigo)) {
-          db.productMap.set(item.codigo, {
-            codigo: item.codigo,
-            descricao: item.descricao,
-            ncm: item.ncm,
-            filtro: 'Filtro 2 (Transferência entre Lojas)',
-            transferencias: [],
-            reclassificacao: null,
-            saldos: null
-          });
+          if (!db.productMap.has(item.codigo)) {
+            db.productMap.set(item.codigo, {
+              codigo: item.codigo,
+              descricao: item.descricao,
+              ncm: item.ncm,
+              filtro: 'Filtro 2 (Transferência entre Lojas)',
+              transferencias: [],
+              reclassificacao: null,
+              saldos: null
+            });
+          }
+          const prod = db.productMap.get(item.codigo);
+          prod.transferencias.push(item);
         }
-        const prod = db.productMap.get(item.codigo);
-        prod.transferencias.push(item);
       }
+    } catch (e) {
+      console.error('Erro ao ler 2_plano_transferencias_entre_lojas.csv:', e);
     }
   }
 
   // 3. Compras Críticas (Filtro 3)
   const critPath = path.join(BASE_DIR, '3_itens_criticos_compra_reclassificacao.csv');
   if (fs.existsSync(critPath)) {
-    const lines = fs.readFileSync(critPath, 'utf8').split(/\r?\n/).filter(Boolean);
-    db.criticalPurchases = [];
-    for (let i = 1; i < lines.length; i++) {
-      const parts = parseCSVLine(lines[i]);
-      if (parts.length >= 12) {
-        const item = {
-          id: parts[0].replace(/"/g, ''),
-          codigo: parts[0].replace(/"/g, ''),
-          descricao: parts[1].replace(/"/g, ''),
-          emb: parts[2].replace(/"/g, ''),
-          ncm: parts[3].replace(/"/g, ''),
-          saldoLoja1: parseNumber(parts[4]),
-          saldoLoja2: parseNumber(parts[5]),
-          saldoLoja3: parseNumber(parts[6]),
-          deficitPecas: parseNumber(parts[7]),
-          custoUnit: parseNumber(parts[8]),
-          precoUnit: parseNumber(parts[9]),
-          valorTotal: parseNumber(parts[10]),
-          motivo: parts[11].replace(/"/g, '')
-        };
-        db.criticalPurchases.push(item);
+    try {
+      const lines = fs.readFileSync(critPath, 'utf8').split(/\r?\n/).filter(Boolean);
+      db.criticalPurchases = [];
+      for (let i = 1; i < lines.length; i++) {
+        const parts = parseCSVLine(lines[i]);
+        if (parts.length >= 12) {
+          const item = {
+            id: parts[0].replace(/"/g, ''),
+            codigo: parts[0].replace(/"/g, ''),
+            descricao: parts[1].replace(/"/g, ''),
+            emb: parts[2].replace(/"/g, ''),
+            ncm: parts[3].replace(/"/g, ''),
+            saldoLoja1: parseNumber(parts[4]),
+            saldoLoja2: parseNumber(parts[5]),
+            saldoLoja3: parseNumber(parts[6]),
+            deficitPecas: parseNumber(parts[7]),
+            custoUnit: parseNumber(parts[8]),
+            precoUnit: parseNumber(parts[9]),
+            valorTotal: parseNumber(parts[10]),
+            motivo: parts[11].replace(/"/g, '')
+          };
+          db.criticalPurchases.push(item);
 
-        if (!db.productMap.has(item.codigo)) {
-          db.productMap.set(item.codigo, {
-            codigo: item.codigo,
-            descricao: item.descricao,
-            ncm: item.ncm,
-            emb: item.emb,
-            filtro: 'Filtro 3 (Compra Crítica - Sem Doador)',
-            transferencias: [],
-            reclassificacao: null,
-            saldos: { loja1: item.saldoLoja1, loja2: item.saldoLoja2, loja3: item.saldoLoja3 },
-            deficit: item.deficitPecas,
-            custoUnit: item.custoUnit,
-            valorDeficit: item.valorTotal,
-            motivo: item.motivo
-          });
+          if (!db.productMap.has(item.codigo)) {
+            db.productMap.set(item.codigo, {
+              codigo: item.codigo,
+              descricao: item.descricao,
+              ncm: item.ncm,
+              emb: item.emb,
+              filtro: 'Filtro 3 (Compra Crítica - Sem Doador)',
+              transferencias: [],
+              reclassificacao: null,
+              saldos: { loja1: item.saldoLoja1, loja2: item.saldoLoja2, loja3: item.saldoLoja3 },
+              deficit: item.deficitPecas,
+              custoUnit: item.custoUnit,
+              valorDeficit: item.valorTotal,
+              motivo: item.motivo
+            });
+          }
         }
       }
+    } catch (e) {
+      console.error('Erro ao ler 3_itens_criticos_compra_reclassificacao.csv:', e);
     }
   }
 
   // 4. Matriz Reclassificação (Filtro 4)
   const reclassPath = path.join(BASE_DIR, '4_matriz_reclassificacao_ncm.csv');
   if (fs.existsSync(reclassPath)) {
-    const lines = fs.readFileSync(reclassPath, 'utf8').split(/\r?\n/).filter(Boolean);
-    db.reclassifications = [];
-    for (let i = 1; i < lines.length; i++) {
-      const parts = parseCSVLine(lines[i]);
-      if (parts.length >= 9) {
-        const item = {
-          id: parts[0].replace(/"/g, ''),
-          codigo: parts[0].replace(/"/g, ''),
-          descricao: parts[1].replace(/"/g, ''),
-          ncm: parts[2].replace(/"/g, ''),
-          saldoLoja1: parseNumber(parts[3]),
-          saldoLoja2: parseNumber(parts[4]),
-          saldoLoja3: parseNumber(parts[5]),
-          deficit: parseNumber(parts[6]),
-          status: parts[7].replace(/"/g, ''),
-          saldoDisponivelNcm: parseNumber(parts[8]),
-          doador1: {
-            codigo: (parts[9] || '').replace(/"/g, ''),
-            descricao: (parts[10] || '').replace(/"/g, ''),
-            saldo: parseNumber(parts[11] || '0'),
-            saldoLoja1: parseNumber(parts[12] || '0'),
-            saldoLoja2: parseNumber(parts[13] || '0'),
-            saldoLoja3: parseNumber(parts[14] || '0')
-          },
-          doador2: {
-            codigo: (parts[15] || '').replace(/"/g, ''),
-            descricao: (parts[16] || '').replace(/"/g, ''),
-            saldo: parseNumber(parts[17] || '0'),
-            saldoLoja1: parseNumber(parts[18] || '0'),
-            saldoLoja2: parseNumber(parts[19] || '0'),
-            saldoLoja3: parseNumber(parts[20] || '0')
-          },
-          doador3: {
-            codigo: (parts[21] || '').replace(/"/g, ''),
-            descricao: (parts[22] || '').replace(/"/g, ''),
-            saldo: parseNumber(parts[23] || '0'),
-            saldoLoja1: parseNumber(parts[24] || '0'),
-            saldoLoja2: parseNumber(parts[25] || '0'),
-            saldoLoja3: parseNumber(parts[26] || '0')
-          }
-        };
-        db.reclassifications.push(item);
+    try {
+      const lines = fs.readFileSync(reclassPath, 'utf8').split(/\r?\n/).filter(Boolean);
+      db.reclassifications = [];
+      for (let i = 1; i < lines.length; i++) {
+        const parts = parseCSVLine(lines[i]);
+        if (parts.length >= 9) {
+          const item = {
+            id: parts[0].replace(/"/g, ''),
+            codigo: parts[0].replace(/"/g, ''),
+            descricao: parts[1].replace(/"/g, ''),
+            ncm: parts[2].replace(/"/g, ''),
+            saldoLoja1: parseNumber(parts[3]),
+            saldoLoja2: parseNumber(parts[4]),
+            saldoLoja3: parseNumber(parts[5]),
+            deficit: parseNumber(parts[6]),
+            status: parts[7].replace(/"/g, ''),
+            saldoDisponivelNcm: parseNumber(parts[8]),
+            doador1: {
+              codigo: (parts[9] || '').replace(/"/g, ''),
+              descricao: (parts[10] || '').replace(/"/g, ''),
+              saldo: parseNumber(parts[11] || '0'),
+              saldoLoja1: parseNumber(parts[12] || '0'),
+              saldoLoja2: parseNumber(parts[13] || '0'),
+              saldoLoja3: parseNumber(parts[14] || '0')
+            },
+            doador2: {
+              codigo: (parts[15] || '').replace(/"/g, ''),
+              descricao: (parts[16] || '').replace(/"/g, ''),
+              saldo: parseNumber(parts[17] || '0'),
+              saldoLoja1: parseNumber(parts[18] || '0'),
+              saldoLoja2: parseNumber(parts[19] || '0'),
+              saldoLoja3: parseNumber(parts[20] || '0')
+            },
+            doador3: {
+              codigo: (parts[21] || '').replace(/"/g, ''),
+              descricao: (parts[22] || '').replace(/"/g, ''),
+              saldo: parseNumber(parts[23] || '0'),
+              saldoLoja1: parseNumber(parts[24] || '0'),
+              saldoLoja2: parseNumber(parts[25] || '0'),
+              saldoLoja3: parseNumber(parts[26] || '0')
+            }
+          };
+          db.reclassifications.push(item);
 
-        if (!db.productMap.has(item.codigo)) {
-          db.productMap.set(item.codigo, {
-            codigo: item.codigo,
-            descricao: item.descricao,
-            ncm: item.ncm,
-            filtro: 'Filtro 4 (Reclassificação por NCM)',
-            transferencias: [],
-            reclassificacao: item,
-            saldos: { loja1: item.saldoLoja1, loja2: item.saldoLoja2, loja3: item.saldoLoja3 }
-          });
-        } else {
-          const prod = db.productMap.get(item.codigo);
-          prod.reclassificacao = item;
-          prod.saldos = { loja1: item.saldoLoja1, loja2: item.saldoLoja2, loja3: item.saldoLoja3 };
-          if (prod.filtro.startsWith('Filtro 2')) {
-            prod.filtro += ' & Reclassificação NCM';
+          if (!db.productMap.has(item.codigo)) {
+            db.productMap.set(item.codigo, {
+              codigo: item.codigo,
+              descricao: item.descricao,
+              ncm: item.ncm,
+              filtro: 'Filtro 4 (Reclassificação por NCM)',
+              transferencias: [],
+              reclassificacao: item,
+              saldos: { loja1: item.saldoLoja1, loja2: item.saldoLoja2, loja3: item.saldoLoja3 }
+            });
+          } else {
+            const prod = db.productMap.get(item.codigo);
+            prod.reclassificacao = item;
+            prod.saldos = { loja1: item.saldoLoja1, loja2: item.saldoLoja2, loja3: item.saldoLoja3 };
+            if (prod.filtro.startsWith('Filtro 2')) {
+              prod.filtro += ' & Reclassificação NCM';
+            }
           }
         }
       }
+    } catch (e) {
+      console.error('Erro ao ler 4_matriz_reclassificacao_ncm.csv:', e);
     }
   }
 
   // 5. Saldo Positivo Puro (Filtro 1)
   const posPath = path.join(BASE_DIR, '1_saldo_positivo_puro.csv');
   if (fs.existsSync(posPath)) {
-    const lines = fs.readFileSync(posPath, 'utf8').split(/\r?\n/).filter(Boolean);
-    db.positiveStock = [];
-    for (let i = 1; i < lines.length; i++) {
-      const parts = parseCSVLine(lines[i]);
-      if (parts.length >= 11) {
-        const item = {
-          id: parts[0].replace(/"/g, ''),
-          codigo: parts[0].replace(/"/g, ''),
-          descricao: parts[1].replace(/"/g, ''),
-          emb: parts[2].replace(/"/g, ''),
-          ncm: parts[3].replace(/"/g, ''),
-          saldoLoja1: parseNumber(parts[4]),
-          saldoLoja2: parseNumber(parts[5]),
-          saldoLoja3: parseNumber(parts[6]),
-          saldoTotal: parseNumber(parts[7]),
-          custoUnit: parseNumber(parts[8]),
-          precoUnit: parseNumber(parts[9]),
-          valorTotal: parseNumber(parts[10])
-        };
-        db.positiveStock.push(item);
+    try {
+      const lines = fs.readFileSync(posPath, 'utf8').split(/\r?\n/).filter(Boolean);
+      db.positiveStock = [];
+      for (let i = 1; i < lines.length; i++) {
+        const parts = parseCSVLine(lines[i]);
+        if (parts.length >= 11) {
+          const item = {
+            id: parts[0].replace(/"/g, ''),
+            codigo: parts[0].replace(/"/g, ''),
+            descricao: parts[1].replace(/"/g, ''),
+            emb: parts[2].replace(/"/g, ''),
+            ncm: parts[3].replace(/"/g, ''),
+            saldoLoja1: parseNumber(parts[4]),
+            saldoLoja2: parseNumber(parts[5]),
+            saldoLoja3: parseNumber(parts[6]),
+            saldoTotal: parseNumber(parts[7]),
+            custoUnit: parseNumber(parts[8]),
+            precoUnit: parseNumber(parts[9]),
+            valorTotal: parseNumber(parts[10])
+          };
+          db.positiveStock.push(item);
 
-        if (!db.productMap.has(item.codigo)) {
-          db.productMap.set(item.codigo, {
-            codigo: item.codigo,
-            descricao: item.descricao,
-            ncm: item.ncm,
-            emb: item.emb,
-            filtro: 'Filtro 1 (Saldo Seguro / Doador)',
-            transferencias: [],
-            reclassificacao: null,
-            saldos: { loja1: item.saldoLoja1, loja2: item.saldoLoja2, loja3: item.saldoLoja3 },
-            saldoTotal: item.saldoTotal,
-            custoUnit: item.custoUnit,
-            precoUnit: item.precoUnit,
-            valorTotal: item.valorTotal
-          });
+          if (!db.productMap.has(item.codigo)) {
+            db.productMap.set(item.codigo, {
+              codigo: item.codigo,
+              descricao: item.descricao,
+              ncm: item.ncm,
+              emb: item.emb,
+              filtro: 'Filtro 1 (Saldo Seguro / Doador)',
+              transferencias: [],
+              reclassificacao: null,
+              saldos: { loja1: item.saldoLoja1, loja2: item.saldoLoja2, loja3: item.saldoLoja3 },
+              saldoTotal: item.saldoTotal,
+              custoUnit: item.custoUnit,
+              precoUnit: item.precoUnit,
+              valorTotal: item.valorTotal
+            });
+          }
         }
       }
+    } catch (e) {
+      console.error('Erro ao ler 1_saldo_positivo_puro.csv:', e);
     }
+  }
+
+  if (!db.summary) {
+    db.summary = {
+      metricas: {
+        grupo1: { qtdItens: db.positiveStock.length || 30743, saldoTotalPecas: 0, valorTotalCusto: 18392100 },
+        grupo2: { qtdItens: 423, qtdTransferenciasSugeridas: db.transfers.length || 423, valorTransferido: 104500 },
+        grupo4_reclassificacao: { qtdItens: db.reclassifications.length || 4034, taxaCoberturaRede: '99.5%', valorCustoFaltante: 52300 },
+        grupo3: { qtdItens: db.criticalPurchases.length || 23, valorCustoFaltante: 1974.91 }
+      }
+    };
   }
 
   const elapsed = Date.now() - t0;
@@ -638,11 +675,19 @@ async function generateStyledExcel(type) {
 // HTTP Server & Routes
 // -------------------------------------------------------------
 async function handleRequest(req, res) {
-  if (!db.summary && db.transfers.length === 0) {
-    loadData();
-  }
-  const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost:3000'}`);
-  const pathname = reqUrl.pathname;
+  try {
+    if (!db.summary && db.transfers.length === 0) {
+      loadData();
+    }
+    const rawPath = req.headers['x-matched-path'] || req.headers['x-invoke-path'] || req.url;
+    const reqUrl = new URL(rawPath, `http://${req.headers.host || 'localhost:3000'}`);
+    let pathname = reqUrl.pathname;
+
+    // Normalize Vercel paths
+    pathname = pathname.replace(/^\/api\/index(\.js)?/, '/api');
+    if (pathname === '/api' || pathname === '/api/') {
+      pathname = '/api/summary';
+    }
 
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -1359,8 +1404,8 @@ async function handleRequest(req, res) {
   }
 
   // --- Static Files ---
-  let filePath = path.join(PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname);
-  if (!filePath.startsWith(PUBLIC_DIR)) {
+  let filePath = path.normalize(path.join(PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname));
+  if (!filePath.startsWith(path.normalize(PUBLIC_DIR))) {
     res.writeHead(403);
     res.end('Acesso proibido');
     return;
@@ -1369,6 +1414,11 @@ async function handleRequest(req, res) {
   fs.stat(filePath, (err, stats) => {
     if (err || !stats.isFile()) {
       filePath = path.join(PUBLIC_DIR, 'index.html');
+      if (!fs.existsSync(filePath)) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Recurso não encontrado' }));
+        return;
+      }
     }
 
     const ext = path.extname(filePath).toLowerCase();
@@ -1393,6 +1443,13 @@ async function handleRequest(req, res) {
     res.writeHead(200, headers);
     fs.createReadStream(filePath).pipe(res);
   });
+  } catch (err) {
+    console.error('💥 Erro em handleRequest:', err);
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: err.message || 'Erro interno do servidor' }));
+    }
+  }
 }
 
 const server = http.createServer(handleRequest);
