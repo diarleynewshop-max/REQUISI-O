@@ -1,5 +1,7 @@
 {
   "version": 2,
+  "buildCommand": "npm install",
+  "outputDirectory": "public",
   "rewrites": [
     {
       "source": "/api/(.*)",
@@ -11,13 +13,15 @@
       "maxDuration": 60,
       "memory": 1024,
       "includeFiles": [
-        "../*.csv",
-        "../*.json",
-        "../*.xlsx",
-        "../*.txt",
-        "../server.js",
-        "../package.json",
-        "../node_modules/**"
+        "../0_estoque_original_new.csv",
+        "../1_saldo_positivo_puro.csv",
+        "../2_plano_transferencias_entre_lojas.csv",
+        "../3_itens_criticos_compra_reclassificacao.csv",
+        "../3_itens_nao_reclassificaveis_compra.csv",
+        "../4_matriz_reclassificacao_ncm.csv",
+        "../resumo_auditoria.json",
+        "../status_execucao.json",
+        "../server.js"
       ]
     }
   }
