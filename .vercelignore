@@ -1,0 +1,11 @@
+node_modules
+.git
+.gitignore
+extensao_varejofacil.zip
+extensao_varejofacil
+auto_clicker_nf.py
+INICIAR_AUTO_CLICKER.bat
+*.py
+*.bat
+ROADMAP_E_PLANO_DE_EXECUCAO.md
+implementation_plan.md

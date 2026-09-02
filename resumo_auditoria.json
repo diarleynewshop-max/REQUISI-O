@@ -1,0 +1,29 @@
+{
+  "dataProcessamento": "2026-08-31T13:18:54.099Z",
+  "totalProdutosUnicos": 35361,
+  "totalRegistrosCSV": 42298,
+  "metricas": {
+    "grupo1": {
+      "qtdItens": 30744,
+      "pecasTotais": 3500127,
+      "valorCustoTotal": 18395344.24
+    },
+    "grupo2": {
+      "qtdItens": 423,
+      "qtdTransferenciasSugeridas": 423,
+      "pecasTransferidas": 6221,
+      "valorTransferido": 49835.36
+    },
+    "grupo3": {
+      "qtdItens": 23,
+      "pecasFaltantes": 459,
+      "valorCustoFaltante": 1974.91
+    },
+    "grupo4_reclassificacao": {
+      "qtdItens": 4171,
+      "pecasFaltantes": 94328,
+      "valorCustoFaltante": 863067.08,
+      "taxaCoberturaRede": "99.5%"
+    }
+  }
+}
