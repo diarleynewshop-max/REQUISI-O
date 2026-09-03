@@ -1,29 +1,29 @@
 {
-  "dataProcessamento": "2026-08-31T13:18:54.099Z",
-  "totalProdutosUnicos": 35361,
-  "totalRegistrosCSV": 42298,
+  "dataProcessamento": "2026-09-03T20:13:45.854Z",
+  "totalProdutosUnicos": 39510,
+  "totalRegistrosCSV": 118530,
   "metricas": {
     "grupo1": {
-      "qtdItens": 30744,
-      "pecasTotais": 3500127,
-      "valorCustoTotal": 18395344.24
+      "qtdItens": 32802,
+      "pecasTotais": 3587840,
+      "valorCustoTotal": 19505486.9
     },
     "grupo2": {
-      "qtdItens": 423,
-      "qtdTransferenciasSugeridas": 423,
-      "pecasTransferidas": 6221,
-      "valorTransferido": 49835.36
+      "qtdItens": 3065,
+      "qtdTransferenciasSugeridas": 3073,
+      "pecasTransferidas": 183895,
+      "valorTransferido": 1009960.49
     },
     "grupo3": {
-      "qtdItens": 23,
-      "pecasFaltantes": 459,
-      "valorCustoFaltante": 1974.91
+      "qtdItens": 22,
+      "pecasFaltantes": 4081,
+      "valorCustoFaltante": 17381.33
     },
     "grupo4_reclassificacao": {
-      "qtdItens": 4171,
-      "pecasFaltantes": 94328,
-      "valorCustoFaltante": 863067.08,
-      "taxaCoberturaRede": "99.5%"
+      "qtdItens": 3621,
+      "pecasFaltantes": 105663,
+      "valorCustoFaltante": 1252435.11,
+      "taxaCoberturaRede": "99.4%"
     }
   }
 }

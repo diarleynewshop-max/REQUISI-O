@@ -2,18 +2,34 @@ const fs = require('fs');
 const path = require('path');
 const ExcelJS = require('exceljs');
 
-const DOWNLOADS_CSV = 'C:/Users/diarl/Downloads/Estoque atualizado.csv';
+const candidateFiles = [
+  'C:/Users/diarl/Downloads/relatorioSaldoEstoque.csv',
+  'C:/Users/diarl/Downloads/Estoque atualizado.csv'
+];
+
+let DOWNLOADS_CSV = null;
+let newestMtime = 0;
+for (const f of candidateFiles) {
+  if (fs.existsSync(f)) {
+    const stat = fs.statSync(f);
+    if (stat.mtimeMs > newestMtime) {
+      newestMtime = stat.mtimeMs;
+      DOWNLOADS_CSV = f;
+    }
+  }
+}
+
 const WORKSPACE_DIR = __dirname;
 const ORIGINAL_CSV = path.join(WORKSPACE_DIR, '0_estoque_original_new.csv');
 
 console.log('🚀 Iniciando processamento do estoque atualizado...');
 
 // 1. Copiar arquivo de Downloads para o Workspace
-if (fs.existsSync(DOWNLOADS_CSV)) {
+if (DOWNLOADS_CSV && fs.existsSync(DOWNLOADS_CSV)) {
   fs.copyFileSync(DOWNLOADS_CSV, ORIGINAL_CSV);
   console.log(`✅ Arquivo copiado de "${DOWNLOADS_CSV}" para "${ORIGINAL_CSV}"`);
 } else {
-  console.error(`❌ Arquivo não encontrado em: ${DOWNLOADS_CSV}`);
+  console.error(`❌ Nenhum arquivo de estoque encontrado em Downloads (${candidateFiles.join(', ')})`);
   process.exit(1);
 }
 
