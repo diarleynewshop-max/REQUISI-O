@@ -1,4 +1,7 @@
 {
   "framework": null,
-  "outputDirectory": "."
+  "outputDirectory": ".",
+  "rewrites": [
+    { "source": "/api/logs/:path*", "destination": "/api/logs" }
+  ]
 }

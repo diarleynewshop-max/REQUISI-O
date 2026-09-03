@@ -70,8 +70,17 @@
     };
   }
 
-  const LOGS_STORAGE_KEY = 'newshop_logs_v1';
-  let cachedClientIp = null;
+  // Device ID: identifica cada navegador/máquina de forma única (mesmo IP na mesma rede)
+  const DEVICE_ID_KEY = 'newshop_device_id';
+  function getDeviceId() {
+    let id = '';
+    try { id = localStorage.getItem(DEVICE_ID_KEY); } catch (e) {}
+    if (!id) {
+      id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
+      try { localStorage.setItem(DEVICE_ID_KEY, id); } catch (e) {}
+    }
+    return id;
+  }
 
   function isLocalServer() {
     const h = window.location.hostname;
@@ -79,91 +88,16 @@
     return (h === 'localhost' || h === '127.0.0.1' || h.startsWith('192.168.') || h.startsWith('10.') || p === '3000');
   }
 
-  async function getClientIpAddress() {
-    if (cachedClientIp) return cachedClientIp;
-    if (isLocalServer()) {
-      cachedClientIp = '127.0.0.1';
-      return cachedClientIp;
-    }
-    try {
-      const res = await originalFetch('https://api.ipify.org?format=json');
-      const d = await res.json();
-      if (d && d.ip) {
-        cachedClientIp = d.ip;
-        return cachedClientIp;
-      }
-    } catch (e) {}
-    cachedClientIp = 'Dispositivo Web (Vercel)';
-    return cachedClientIp;
-  }
-
-  function getLocalLogs() {
-    try {
-      const saved = localStorage.getItem(LOGS_STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return { ips: {}, history: [] };
-  }
-
-  function saveLocalLogs(store) {
-    try {
-      localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(store));
-    } catch (e) {}
-  }
-
-  async function recordLocalLog(action, details = '') {
-    const ip = await getClientIpAddress();
-    const store = getLocalLogs();
-    const now = Date.now();
-    const horario = new Date(now).toLocaleString('pt-BR');
-
-    if (!store.ips[ip]) {
-      store.ips[ip] = {
-        ip,
-        ultimaAcao: action,
-        detalhes: details,
-        horario,
-        timestamp: now,
-        totalAcoes: 1,
-        primeiroAcesso: horario
-      };
-    } else {
-      store.ips[ip].ultimaAcao = action;
-      store.ips[ip].detalhes = details;
-      store.ips[ip].horario = horario;
-      store.ips[ip].timestamp = now;
-      store.ips[ip].totalAcoes = (store.ips[ip].totalAcoes || 0) + 1;
-    }
-
-    const entry = {
-      id: `${now}_${Math.random().toString(36).substring(2, 7)}`,
-      horario,
-      timestamp: now,
-      ip,
-      acao: action,
-      detalhes: details
-    };
-
-    store.history.unshift(entry);
-    if (store.history.length > 200) store.history = store.history.slice(0, 200);
-
-    saveLocalLogs(store);
-    return { ip, store };
-  }
-
   const originalFetch = window.fetch;
+
   function reportActionToServer(action, details) {
-    if (isLocalServer()) {
-      try {
-        originalFetch('/api/logs/action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, details })
-        }).catch(() => {});
-      } catch (e) {}
-    } else {
-      recordLocalLog(action, details).catch(() => {});
-    }
+    try {
+      originalFetch('/api/logs/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Device-Id': getDeviceId() },
+        body: JSON.stringify({ action, details })
+      }).catch(() => {});
+    } catch (e) {}
   }
   window.reportActionToServer = reportActionToServer;
 
@@ -173,9 +107,11 @@
       return originalFetch.apply(this, arguments);
     }
 
-    // Se estiver no servidor local, as rotas de logs vão direto para o backend Node.js
-    if (urlStr.includes('/api/logs') && isLocalServer()) {
-      return originalFetch.apply(this, arguments);
+    // Rotas de logs SEMPRE vão direto para o backend (local ou Vercel serverless)
+    if (urlStr.includes('/api/logs')) {
+      const newInit = { ...(init || {}) };
+      newInit.headers = { ...(newInit.headers || {}), 'X-Device-Id': getDeviceId() };
+      return originalFetch.call(this, resource, newInit);
     }
 
     const parsed = new URL(urlStr, window.location.origin);
@@ -195,58 +131,6 @@
         headers: { 'Content-Type': 'application/json; charset=utf-8' }
       });
     };
-
-    // 0. Rotas de Logs para Vercel / Ambiente Nuvem
-    if (pathname === '/api/logs' && method === 'GET') {
-      const ip = await getClientIpAddress();
-      const store = getLocalLogs();
-      const ipList = Object.values(store.ips).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-      return jsonRes({
-        currentIp: ip,
-        totalIps: ipList.length || 1,
-        totalActions: store.history.length,
-        ips: ipList.length ? ipList : [{
-          ip,
-          ultimaAcao: 'Conectou ao Painel Vercel',
-          detalhes: 'Sessão Web Ativa',
-          horario: new Date().toLocaleString('pt-BR'),
-          timestamp: Date.now(),
-          totalAcoes: 1,
-          primeiroAcesso: new Date().toLocaleString('pt-BR')
-        }],
-        history: store.history.slice(0, 100)
-      });
-    }
-
-    if (pathname === '/api/logs/action' && method === 'POST') {
-      let payload = {};
-      try {
-        payload = typeof init.body === 'string' ? JSON.parse(init.body) : (init.body || {});
-      } catch (e) {}
-      const { action, details } = payload;
-      if (action) {
-        const res = await recordLocalLog(action, details || '');
-        return jsonRes({ success: true, ip: res.ip });
-      }
-      return jsonRes({ success: false });
-    }
-
-    if (pathname === '/api/logs/clear' && method === 'POST') {
-      saveLocalLogs({ ips: {}, history: [] });
-      return jsonRes({ success: true, message: 'Logs limpos com sucesso' });
-    }
-
-    if (pathname === '/api/logs/download') {
-      const store = getLocalLogs();
-      let lines = store.history.map(h => `[${h.horario}] IP: ${h.ip} | Última Ação: ${h.acao}${h.detalhes ? ' (' + h.detalhes + ')' : ''}`);
-      if (lines.length === 0) lines = [`[${new Date().toLocaleString('pt-BR')}] Nenhuma ação registrada ainda.`];
-      return new Response(lines.join('\r\n'), {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Content-Disposition': 'attachment; filename="atividades.log"'
-        }
-      });
-    }
 
     // 1. /api/summary
     if (pathname === '/api/summary') {
