@@ -1112,3 +1112,21 @@ tr.row-done td:first-child {
   margin-bottom: 6px;
 }
 
+/* Logs & IPs System Styles */
+.badge-indigo {
+  background: rgba(99, 102, 241, 0.18);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+
+.kpi-ip {
+  font-family: monospace;
+  letter-spacing: 0.5px;
+  color: #38bdf8;
+}
+
+.kpi-time {
+  font-family: monospace;
+  color: #c084fc;
+}
+

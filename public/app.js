@@ -12,7 +12,8 @@ document.addEventListener('DOMContentLoaded', () => {
     purchases: { title: '⚠️ Itens Críticos de Compra (Filtro 3)', sub: '23 produtos sem doador de mesmo NCM disponível na rede (R$ 1.974,91)' },
     positives: { title: '🛡️ Saldo Seguro & Base de Doadores (Filtro 1)', sub: '30.744 produtos com saldo 100% positivo em todas as lojas (R$ 18.39M)' },
     lookup: { title: '🔍 Consulta 360° de Produto no ERP', sub: 'Diagnóstico em tempo real por código ou código de barras' },
-    downloads: { title: '📁 Central de Downloads & Planilhas Dinâmicas', sub: 'Baixe planilhas Excel oficiais com itens baixados pintados de verde' }
+    downloads: { title: '📁 Central de Downloads & Planilhas Dinâmicas', sub: 'Baixe planilhas Excel oficiais com itens baixados pintados de verde' },
+    logs: { title: '📡 Logs & Dispositivos Conectados na Rede', sub: 'Monitoramento em tempo real de cada IP e da última ação executada' }
   };
 
   navItems.forEach(item => {
@@ -34,6 +35,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (tabKey === 'reclassifications') loadReclassifications(1);
       if (tabKey === 'purchases') loadPurchases();
       if (tabKey === 'positives') loadPositives(1);
+      if (tabKey === 'logs') loadLogs();
+
+      if (typeof reportAction === 'function') {
+        const simpleName = titles[tabKey]?.title ? titles[tabKey].title.split('(')[0].trim() : tabKey;
+        reportAction(`Acessou aba ${simpleName}`);
+      }
     });
   });
 
@@ -81,6 +88,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initial Load
   loadOverview();
+  loadLogs();
+
+  // Polling automático da aba de Logs a cada 6 segundos
+  setInterval(() => {
+    const activeTab = document.querySelector('.nav-item.active');
+    if (activeTab && activeTab.getAttribute('data-tab') === 'logs') {
+      loadLogs(true);
+    }
+  }, 6000);
 
   // -------------------------------------------------------------
   // Overview & Charts & Progress
@@ -1571,5 +1587,210 @@ document.addEventListener('DOMContentLoaded', () => {
     const next = document.getElementById('pag-next');
     if (prev) prev.onclick = () => callback(page - 1);
     if (next) next.onclick = () => callback(page + 1);
+  }
+
+  // -------------------------------------------------------------
+  // TAB: LOGS & IPS CONECTADOS (IP & Última Ação)
+  // -------------------------------------------------------------
+  let logHistoryCache = [];
+
+  async function reportAction(action, details = '') {
+    try {
+      if (window.reportActionToServer) {
+        window.reportActionToServer(action, details);
+      } else {
+        fetch('/api/logs/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, details })
+        }).catch(() => {});
+      }
+    } catch (e) {}
+  }
+  window.reportAction = reportAction;
+
+  async function loadLogs(isSilent = false) {
+    try {
+      const res = await fetch('/api/logs');
+      if (!res.ok) return;
+      const data = await res.json();
+
+      const currentIp = data.currentIp || '127.0.0.1';
+      const ips = data.ips || [];
+      const history = data.history || [];
+      logHistoryCache = history;
+
+      // Badges e KPIs
+      const badgeSide = document.getElementById('side-badge-logs');
+      if (badgeSide) badgeSide.innerText = `${ips.length} IP${ips.length === 1 ? '' : 's'}`;
+
+      const statIps = document.getElementById('log-stat-ips');
+      if (statIps) statIps.innerText = ips.length;
+
+      const statActions = document.getElementById('log-stat-actions');
+      if (statActions) statActions.innerText = data.totalActions || history.length;
+
+      const statCurrIp = document.getElementById('log-stat-current-ip');
+      if (statCurrIp) statCurrIp.innerText = currentIp;
+
+      const statLastTime = document.getElementById('log-stat-last-time');
+      const statLastDesc = document.getElementById('log-stat-last-desc');
+      if (history.length > 0) {
+        if (statLastTime) statLastTime.innerText = history[0].horario ? history[0].horario.split(' ')[1] || history[0].horario : '--:--:--';
+        if (statLastDesc) statLastDesc.innerText = `${history[0].ip}: ${history[0].acao}`;
+      } else {
+        if (statLastTime) statLastTime.innerText = '--:--:--';
+        if (statLastDesc) statLastDesc.innerText = 'Nenhuma atividade recente';
+      }
+
+      // Renderiza Tabela de IPs Conectados
+      const tbodyIps = document.getElementById('tbody-ips-logs');
+      if (tbodyIps) {
+        if (ips.length === 0) {
+          tbodyIps.innerHTML = `
+            <tr>
+              <td colspan="6" class="text-center text-muted" style="padding: 30px;">
+                Nenhum dispositivo registrado ainda.
+              </td>
+            </tr>
+          `;
+        } else {
+          const now = Date.now();
+          tbodyIps.innerHTML = ips.map(item => {
+            const isMe = (item.ip === currentIp);
+            const isRecent = item.timestamp && (now - item.timestamp < 10 * 60 * 1000); // 10 min
+            const badgeMe = isMe ? `<span class="badge badge-emerald" style="margin-left: 6px; font-size: 0.7rem; padding: 2px 6px;">ESTA MÁQUINA</span>` : '';
+            const statusDot = isRecent
+              ? `<span style="display: inline-flex; align-items: center; gap: 5px; color: #10b981; font-weight: 500; font-size: 0.82rem;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block; box-shadow: 0 0 6px #10b981;"></span> Online</span>`
+              : `<span style="display: inline-flex; align-items: center; gap: 5px; color: #94a3b8; font-size: 0.82rem;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #64748b; display: inline-block;"></span> Ausente</span>`;
+
+            return `
+              <tr>
+                <td>
+                  <div style="display: flex; align-items: center; font-family: monospace; font-size: 0.95rem; font-weight: 600; color: #f8fafc;">
+                    ${item.ip}
+                    ${badgeMe}
+                  </div>
+                </td>
+                <td>
+                  <span style="font-weight: 600; color: #38bdf8; display: inline-flex; align-items: center; gap: 6px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                    ${item.ultimaAcao || 'Conectou ao sistema'}
+                  </span>
+                </td>
+                <td style="color: #cbd5e1; font-size: 0.85rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.detalhes || ''}">
+                  ${item.detalhes || '<span class="text-muted">-</span>'}
+                </td>
+                <td style="color: #94a3b8; font-size: 0.85rem;">
+                  ${item.horario || '-'}
+                </td>
+                <td style="text-align: center;">
+                  <span class="badge badge-indigo" style="font-size: 0.8rem; font-weight: 600;">${item.totalAcoes || 1}</span>
+                </td>
+                <td style="text-align: center;">
+                  ${statusDot}
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+      }
+
+      // Renderiza Histórico
+      const term = searchLogsInput ? searchLogsInput.value.toLowerCase().trim() : '';
+      if (term) {
+        const filtered = history.filter(item => 
+          (item.ip && item.ip.toLowerCase().includes(term)) ||
+          (item.acao && item.acao.toLowerCase().includes(term)) ||
+          (item.detalhes && item.detalhes.toLowerCase().includes(term)) ||
+          (item.horario && item.horario.toLowerCase().includes(term))
+        );
+        renderLogHistory(filtered);
+      } else {
+        renderLogHistory(history);
+      }
+
+    } catch (err) {
+      if (!isSilent) console.error('Erro ao carregar logs:', err);
+    }
+  }
+
+  function renderLogHistory(items) {
+    const tbodyHistory = document.getElementById('tbody-history-logs');
+    if (!tbodyHistory) return;
+
+    if (!items || items.length === 0) {
+      tbodyHistory.innerHTML = `
+        <tr>
+          <td colspan="4" class="text-center text-muted" style="padding: 25px;">
+            Nenhum evento no histórico.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbodyHistory.innerHTML = items.map(h => {
+      return `
+        <tr>
+          <td style="color: #94a3b8; font-size: 0.82rem; white-space: nowrap;">
+            ${h.horario || '-'}
+          </td>
+          <td>
+            <code style="background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; color: #a5b4fc; font-size: 0.85rem;">${h.ip}</code>
+          </td>
+          <td style="font-weight: 500; color: #f1f5f9; font-size: 0.88rem;">
+            ${h.acao}
+          </td>
+          <td style="color: #cbd5e1; font-size: 0.82rem;" title="${h.detalhes || ''}">
+            ${h.detalhes || '<span class="text-muted">-</span>'}
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // Eventos da aba de Logs
+  const btnRefreshLogs = document.getElementById('btn-refresh-logs');
+  if (btnRefreshLogs) {
+    btnRefreshLogs.addEventListener('click', () => {
+      loadLogs();
+      showToast('Logs e IPs atualizados com sucesso!', 'success');
+    });
+  }
+
+  const btnClearLogs = document.getElementById('btn-clear-logs');
+  if (btnClearLogs) {
+    btnClearLogs.addEventListener('click', async () => {
+      if (!confirm('Deseja realmente limpar todo o histórico de logs de atividades?')) return;
+      try {
+        const res = await fetch('/api/logs/clear', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Histórico de logs limpo com sucesso.', 'success');
+          loadLogs();
+        }
+      } catch (e) {
+        showToast('Erro ao limpar logs.', 'error');
+      }
+    });
+  }
+
+  const searchLogsInput = document.getElementById('log-search-input');
+  if (searchLogsInput) {
+    searchLogsInput.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase().trim();
+      if (!term) {
+        renderLogHistory(logHistoryCache);
+      } else {
+        const filtered = logHistoryCache.filter(item => 
+          (item.ip && item.ip.toLowerCase().includes(term)) ||
+          (item.acao && item.acao.toLowerCase().includes(term)) ||
+          (item.detalhes && item.detalhes.toLowerCase().includes(term)) ||
+          (item.horario && item.horario.toLowerCase().includes(term))
+        );
+        renderLogHistory(filtered);
+      }
+    });
   }
 });
