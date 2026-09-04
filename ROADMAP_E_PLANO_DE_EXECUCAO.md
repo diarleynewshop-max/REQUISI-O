@@ -76,3 +76,34 @@ flowchart TD
 ### Verificação Manual:
 * Abrir os relatórios gerados e validar itens de exemplo com os saldos do ERP.
 * Testar a interface web interativa navegando pelos 4 filtros.
+
+---
+
+## 🏢 Fase Especial: Unificação e Movimentação entre Locais de Estoque
+
+Esta fase operacional atende à consolidação física e fiscal dos múltiplos locais de estoque das lojas (Galpão, Galpão MIDI, CD MIDI) para os locais definitivos **GERAL** e **PADRÃO**, conforme orientação da diretoria:
+
+### 1. Regras Operacionais de Direcionamento
+* **Locais com "MIDI"** (`20 - GALPÃO MIDI`, `23 - CD MIDI`) ➡️ Transferir saldo para **`4 - GERAL`**.
+* **Locais sem "MIDI"** (`15 - GALPÃO`) ➡️ Transferir saldo para **`1 - PADRÃO`**.
+* **Locais Especiais** (`3 - GERENCIAL` e `21 - PRODUTOS QUEBRADOS`) 🛑 **Intocados / Deixar quieto**.
+
+### 2. Painel Consolidado das Transferências de Locais
+
+| Lote Operacional | Loja | Local Origem | Local Destino | Itens | Peças a Transferir | Custo Total (R$) | Valor de Venda (R$) |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **Lote 1** | Loja 3 (CD) | `20 - GALPÃO MIDI` | **4 - GERAL** | **1.980** | 230.543 un | R$ 675.040,12 | R$ 5.060.915,66 |
+| **Lote 2** | Loja 3 (CD) | `15 - GALPÃO` | **1 - PADRÃO** | **185** | 20.487 un | R$ 74.967,28 | R$ 350.512,54 |
+| **Lote 3** | Loja 1 (LOJA) | `20 - GALPÃO MIDI` | **4 - GERAL** | **9** | 375 un | R$ 2.281,73 | R$ 8.672,00 |
+| **Lote 4** | Loja 1 (LOJA) | `23 - CD MIDI` | **4 - GERAL** | **43** | 17.312 un | R$ 31.496,79 | R$ 358.751,40 |
+| **Lote 5** | Loja 1 (LOJA) | `15 - GALPÃO` | **1 - PADRÃO** | **1.303** | 55.567 un | R$ 232.189,31 | R$ 1.209.336,43 |
+| **Lote 6** | Loja 2 (DEPÓSITO) | `15 - GALPÃO` | **1 - PADRÃO** | **657** | 204.431 un | R$ 777.357,73 | R$ 4.208.760,07 |
+| **TOTAL GERAL** | - | - | - | **4.177** | **528.715 un** | **R$ 1.793.332,96** | **R$ 11.196.948,10** |
+
+### 3. Compensação Interna Descoberta na Loja 3 (CD)
+* **139 produtos** que constavam com saldo negativo no `15 - GALPÃO` possuem saldo positivo correspondente no `20 - GALPÃO MIDI`. Ao unificar o estoque em GERAL e PADRÃO, essas divergências se anulam automaticamente sem necessidade de compras adicionais.
+
+### 4. Arquivos Gerados para Execução
+* **Planilha Executiva:** [`plano_transferencia_locais_estoque.xlsx`](file:///c:/Users/diarl/OneDrive/%C3%81rea%20de%20Trabalho/Newshop_Estoque_Reclassificacao/plano_transferencia_locais_estoque.xlsx) com abas individuais por lote, compensação interna e auditoria de negativos.
+* **Lotes de Digitação Rápida (`Codigo;qtd`):** Prontos para carregamento no Auto Clicker (`auto_clicker_nf.py`) e na Extensão do VarejoFácil.
+

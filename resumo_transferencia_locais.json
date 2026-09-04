@@ -1,0 +1,61 @@
+{
+  "dataProcessamento": "2026-09-04T18:57:21.750Z",
+  "totalRegistrosCSV": 4872,
+  "totalTransferenciasPositivas": 4177,
+  "totalPecasTransferir": 528715,
+  "valorCustoTotalTransferir": 1793332.96,
+  "valorVendaTotalTransferir": 11196948.1,
+  "lotes": {
+    "L3_CD_GalpaoMIDI_para_GERAL": {
+      "itens": 1980,
+      "pecas": 230543,
+      "valorCusto": 675040.12,
+      "valorVenda": 5060915.66
+    },
+    "L3_CD_Galpao_para_PADRAO": {
+      "itens": 185,
+      "pecas": 20487,
+      "valorCusto": 74967.28,
+      "valorVenda": 350512.54
+    },
+    "L1_LOJA_GalpaoMIDI_para_GERAL": {
+      "itens": 9,
+      "pecas": 375,
+      "valorCusto": 2281.73,
+      "valorVenda": 8672
+    },
+    "L1_LOJA_CDMIDI_para_GERAL": {
+      "itens": 43,
+      "pecas": 17312,
+      "valorCusto": 31496.79,
+      "valorVenda": 358751.4
+    },
+    "L1_LOJA_Galpao_para_PADRAO": {
+      "itens": 1303,
+      "pecas": 55567,
+      "valorCusto": 232189.31,
+      "valorVenda": 1209336.43
+    },
+    "L2_DEPOSITO_Galpao_para_PADRAO": {
+      "itens": 657,
+      "pecas": 204431,
+      "valorCusto": 777357.73,
+      "valorVenda": 4208760.07
+    }
+  },
+  "compensacoesInternasLoja3": {
+    "qtdItens": 139,
+    "qtdPecasCompensadas": 4654,
+    "valorCompensado": 16656.42
+  },
+  "itensNegativos": {
+    "qtdItens": 632,
+    "qtdPecas": -103557.5,
+    "valorDeficit": -406827.7
+  },
+  "locaisIgnorados": {
+    "qtdItens": 63,
+    "qtdPecas": 9249,
+    "valorTotal": 91963.7
+  }
+}
